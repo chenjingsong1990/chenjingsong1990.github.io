@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#071614" />
+    <title>点击进入</title>
+    <link rel="preload" href="background.png" as="image" type="image/png" />
+    <style>
+      :root { color-scheme: dark; font-family: "PingFang SC", "Microsoft YaHei", sans-serif; background: #071614; }
+      * { box-sizing: border-box; }
+      html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #071614; }
+      .cover { position: fixed; inset: 0; min-height: 100svh; z-index: 2; overflow: hidden; background: #071614; }
+      .cover__image { width: 100%; height: 100%; display: block; object-fit: cover; object-position: center; user-select: none; -webkit-user-drag: none; }
+      .cover__enter { position: absolute; inset: 0; z-index: 3; display: block; width: 100%; height: 100%; background: transparent; color: transparent; cursor: pointer; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+      .cover__enter:focus-visible { outline: 2px solid rgba(255,244,216,.92); outline-offset: -12px; }
+      .cover__hint { position: absolute; z-index: 2; left: 50%; bottom: max(7vh, calc(env(safe-area-inset-bottom) + 28px)); display: grid; justify-items: center; gap: 12px; transform: translateX(-50%); color: rgba(255,244,216,.76); font-size: 11px; letter-spacing: 0; white-space: nowrap; text-shadow: 0 1px 12px rgba(7,22,20,.45); pointer-events: none; }
+      .cover__hint i { width: 1px; height: 28px; background: currentColor; transform-origin: top; animation: breathe 1.8s ease-in-out infinite; }
+      @keyframes breathe { 0%,100% { transform: scaleY(.45); opacity: .45; } 50% { transform: scaleY(1); opacity: 1; } }
+      @media (prefers-reduced-motion: reduce) { *,*::before,*::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; } }
+    </style>
+  </head>
+  <body>
+    <main class="cover" id="cover">
+      <img class="cover__image" src="background.png" alt="" />
+      <div class="cover__hint" aria-hidden="true"><span>轻触进入</span><i></i></div>
+      <a class="cover__enter" href="./gutianle/" aria-label="点击进入"></a>
+    </main>
+  </body>
+</html>
