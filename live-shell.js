@@ -92,4 +92,4 @@
       // Cross-origin access is intentionally limited to postMessage.
     }
   });
-})();
+})(); 
