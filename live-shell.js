@@ -33,6 +33,20 @@
     }
   }
 
+  function validShellReturnUrl(value) {
+    try {
+      var url = new URL(String(value || ''), window.location.href);
+      if (url.origin !== window.location.origin || url.username || url.password || url.hash) return false;
+      if (!/^\/(?:[^/?#]+\/)?$/.test(url.pathname)) return false;
+      var room = url.searchParams.get('room') || '';
+      var token = url.searchParams.get('t') || '';
+      if (!/^[A-Za-z0-9_-]{1,64}$/.test(room) || (token && !allowedToken.test(token))) return false;
+      return Array.from(url.searchParams.keys()).every(function (key) { return key === 'room' || key === 't'; });
+    } catch (error) {
+      return false;
+    }
+  }
+
   function allowedTopRedirect(value, messageType) {
     try {
       var url = new URL(String(value || ''), backendOrigin);
@@ -46,10 +60,12 @@
         if (!isBusinessLive || !/^\d+$/.test(url.searchParams.get('purchase') || '')) return '';
         var purchaseStep = url.searchParams.get('purchase_step') || '';
         var purchaseQuantity = url.searchParams.get('purchase_quantity') || '';
+        var returnUrl = url.searchParams.get('return') || '';
         if (purchaseStep && purchaseStep !== 'address') return '';
         if (purchaseQuantity && !/^(?:[1-9]|[1-9][0-9])$/.test(purchaseQuantity)) return '';
+        if (returnUrl && !validShellReturnUrl(returnUrl)) return '';
         Array.from(url.searchParams.keys()).forEach(function (key) {
-          if (key !== 'purchase' && key !== 't' && key !== 'purchase_step' && key !== 'purchase_quantity') url.searchParams.delete(key);
+          if (key !== 'purchase' && key !== 't' && key !== 'purchase_step' && key !== 'purchase_quantity' && key !== 'return') url.searchParams.delete(key);
         });
       }
       return url.href;
@@ -66,8 +82,12 @@
     var pathToken = index >= 0 ? parts[index + 2] || '' : '';
     var queryToken = params.get('t') || '';
     var token = pathToken || queryToken;
+    var paymentState = params.get('payment') || '';
+    var paymentOrderNo = params.get('order_no') || '';
     if (!/^[A-Za-z0-9_-]{1,64}$/.test(slug) || (token && !allowedToken.test(token))) return null;
-    return { slug: slug, token: token };
+    if (paymentState && !/^(?:success|failed)$/.test(paymentState)) return null;
+    if (paymentState && !/^[A-Za-z0-9_-]{1,80}$/.test(paymentOrderNo)) return null;
+    return { slug: slug, token: token, paymentState: paymentState, paymentOrderNo: paymentOrderNo };
   }
 
   var route = parseRoute();
@@ -77,7 +97,13 @@
   }
   var target = backendOrigin + '/live/' + encodeURIComponent(route.slug);
   if (/^[A-Za-z0-9_-]{12}$/.test(route.token)) target += '/' + encodeURIComponent(route.token);
-  else if (/^[a-f0-9]{48}$/i.test(route.token)) target += '?t=' + encodeURIComponent(route.token);
+  var targetParams = new URLSearchParams();
+  if (/^[a-f0-9]{48}$/i.test(route.token)) targetParams.set('t', route.token);
+  if (route.paymentState) {
+    targetParams.set('payment', route.paymentState);
+    targetParams.set('order_no', route.paymentOrderNo);
+  }
+  if (targetParams.toString()) target += '?' + targetParams.toString();
   frame.src = target;
 
   window.addEventListener('message', function (event) {
