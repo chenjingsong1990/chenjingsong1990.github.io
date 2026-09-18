@@ -60,14 +60,16 @@
         if (!isBusinessLive || !/^\d+$/.test(url.searchParams.get('purchase') || '')) return '';
         var purchaseStep = url.searchParams.get('purchase_step') || '';
         var purchaseQuantity = url.searchParams.get('purchase_quantity') || '';
+        var purchaseAddressId = url.searchParams.get('purchase_address_id') || '';
         var paymentHandoff = url.searchParams.get('payment_handoff') || '';
         var returnUrl = url.searchParams.get('return') || '';
         if (purchaseStep && purchaseStep !== 'address') return '';
         if (purchaseQuantity && !/^(?:[1-9]|[1-9][0-9])$/.test(purchaseQuantity)) return '';
+        if (purchaseAddressId && !/^[1-9][0-9]{0,9}$/.test(purchaseAddressId)) return '';
         if (paymentHandoff && paymentHandoff !== '1') return '';
         if (returnUrl && !validShellReturnUrl(returnUrl)) return '';
         Array.from(url.searchParams.keys()).forEach(function (key) {
-          if (key !== 'purchase' && key !== 't' && key !== 'purchase_step' && key !== 'purchase_quantity' && key !== 'payment_handoff' && key !== 'return') url.searchParams.delete(key);
+          if (key !== 'purchase' && key !== 't' && key !== 'purchase_step' && key !== 'purchase_quantity' && key !== 'purchase_address_id' && key !== 'payment_handoff' && key !== 'return') url.searchParams.delete(key);
         });
       }
       return url.href;
