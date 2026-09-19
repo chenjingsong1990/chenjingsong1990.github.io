@@ -6,6 +6,19 @@
   var backendOrigin = String(page.dataset.backendOrigin || '').replace(/\/$/, '');
   var shareImage = String(page.dataset.shareImage || '').trim();
   var allowedToken = /^(?:[A-Za-z0-9_-]{12}|[a-f0-9]{48})$/i;
+  var visitorTokenPattern = /^[a-f0-9]{32}$/i;
+  var visitorToken = '';
+  try {
+    visitorToken = String(localStorage.getItem('private_live_visitor_token') || '').toLowerCase();
+    if (!visitorTokenPattern.test(visitorToken)) {
+      visitorToken = Array.from(crypto.getRandomValues(new Uint8Array(16))).map(function (value) {
+        return value.toString(16).padStart(2, '0');
+      }).join('');
+      localStorage.setItem('private_live_visitor_token', visitorToken);
+    }
+  } catch (error) {
+    visitorToken = '';
+  }
 
   function showError(message) {
     document.body.innerHTML = '<div id="errorMessage"></div>';
@@ -103,6 +116,7 @@
   if (/^[A-Za-z0-9_-]{12}$/.test(route.token)) target += '/' + encodeURIComponent(route.token);
   var targetParams = new URLSearchParams();
   if (/^[a-f0-9]{48}$/i.test(route.token)) targetParams.set('t', route.token);
+  if (visitorToken) targetParams.set('vt', visitorToken);
   if (route.paymentState) {
     targetParams.set('payment', route.paymentState);
     targetParams.set('order_no', route.paymentOrderNo);
