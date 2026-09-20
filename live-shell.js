@@ -4,6 +4,7 @@
   var page = document.body;
   var frame = document.getElementById('liveFrame');
   var backendOrigin = String(page.dataset.backendOrigin || '').replace(/\/$/, '');
+  var paymentOrigin = String(page.dataset.paymentOrigin || backendOrigin).replace(/\/$/, '');
   var shareImage = String(page.dataset.shareImage || '').trim();
   var allowedToken = /^(?:[A-Za-z0-9_-]{12}|[a-f0-9]{48})$/i;
   var visitorTokenPattern = /^[a-f0-9]{32}$/i;
@@ -26,8 +27,8 @@
   }
 
   function updateMeta(data) {
-    var title = String(data && data.title || '直播间').trim() || '直播间';
-    var description = String(data && data.description || '点击进入直播间').trim() || '点击进入直播间';
+    var title = String(data && data.title || 'zb').trim() || 'zb';
+    var description = String(data && data.description || '点击进入zb').trim() || '点击进入zb';
     document.title = title;
     ['shareTitle', 'itemTitle'].forEach(function (id) {
       var node = document.getElementById(id);
@@ -63,12 +64,20 @@
   function allowedTopRedirect(value, messageType) {
     try {
       var url = new URL(String(value || ''), backendOrigin);
-      if (url.origin !== backendOrigin || url.username || url.password || url.hash) return '';
+      if (url.username || url.password || url.hash) return '';
       var isWechatAuth = url.pathname === '/auth/wechat';
       var isPaymentResult = /^\/live\/[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]{12})?\/payment-result$/.test(url.pathname);
+      var isPaymentHandoff = /^\/live\/[A-Za-z0-9_-]+\/payment-handoff$/.test(url.pathname);
       var isBusinessLive = /^\/live\/[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]{12})?$/.test(url.pathname);
       if (messageType === 'wechat-login' && !isWechatAuth) return '';
       if (messageType === 'top-redirect' && !isPaymentResult) return '';
+      if (messageType === 'payment-handoff') {
+        if (url.origin !== paymentOrigin || !isPaymentHandoff) return '';
+        if (!/^[a-f0-9]{64}$/i.test(url.searchParams.get('token') || '')) return '';
+        if (Array.from(url.searchParams.keys()).some(key => key !== 'token')) return '';
+        return url.href;
+      }
+      if (url.origin !== backendOrigin) return '';
       if (messageType === 'business-action') {
         if (!isBusinessLive || !/^\d+$/.test(url.searchParams.get('purchase') || '')) return '';
         var purchaseStep = url.searchParams.get('purchase_step') || '';
@@ -109,7 +118,7 @@
 
   var route = parseRoute();
   if (!frame || !/^https:\/\//i.test(backendOrigin) || !route) {
-    showError('直播间地址无效或暂未配置');
+    showError('zb地址无效或暂未配置');
     return;
   }
   var target = backendOrigin + '/live/' + encodeURIComponent(route.slug);
@@ -127,7 +136,7 @@
   window.addEventListener('message', function (event) {
     if (event.origin !== backendOrigin || !event.data || typeof event.data !== 'object') return;
     if (event.data.type === 'live-share-info') updateMeta(event.data);
-    if ((event.data.type === 'wechat-login' || event.data.type === 'top-redirect' || event.data.type === 'business-action') && event.source === frame.contentWindow) {
+    if ((event.data.type === 'wechat-login' || event.data.type === 'top-redirect' || event.data.type === 'business-action' || event.data.type === 'payment-handoff') && event.source === frame.contentWindow) {
       var target = allowedTopRedirect(event.data.url, event.data.type);
       if (target) window.location.assign(target);
     }
