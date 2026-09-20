@@ -7,6 +7,7 @@
   var paymentOrigin = String(page.dataset.paymentOrigin || backendOrigin).replace(/\/$/, '');
   var shareImage = String(page.dataset.shareImage || '').trim();
   var allowedToken = /^(?:[A-Za-z0-9_-]{12}|[a-f0-9]{48})$/i;
+  var authHandoffPattern = /^[a-f0-9]{64}$/i;
   var visitorTokenPattern = /^[a-f0-9]{32}$/i;
   var visitorToken = '';
   try {
@@ -54,8 +55,9 @@
       if (!/^\/(?:[^/?#]+\/)?$/.test(url.pathname)) return false;
       var room = url.searchParams.get('room') || '';
       var token = url.searchParams.get('t') || '';
-      if (!/^[A-Za-z0-9_-]{1,64}$/.test(room) || (token && !allowedToken.test(token))) return false;
-      return Array.from(url.searchParams.keys()).every(function (key) { return key === 'room' || key === 't'; });
+      var authHandoff = url.searchParams.get('auth_handoff') || '';
+      if (!/^[A-Za-z0-9_-]{1,64}$/.test(room) || (token && !allowedToken.test(token)) || (authHandoff && !authHandoffPattern.test(authHandoff))) return false;
+      return Array.from(url.searchParams.keys()).every(function (key) { return key === 'room' || key === 't' || key === 'auth_handoff'; });
     } catch (error) {
       return false;
     }
@@ -69,7 +71,7 @@
       var isPaymentResult = /^\/live\/[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]{12})?\/payment-result$/.test(url.pathname);
       var isPaymentHandoff = /^\/live\/[A-Za-z0-9_-]+\/payment-handoff$/.test(url.pathname);
       var isBusinessLive = /^\/live\/[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]{12})?$/.test(url.pathname);
-      if (messageType === 'wechat-login' && !isWechatAuth) return '';
+      if (messageType === 'wechat-login' && (!isWechatAuth || ![backendOrigin, paymentOrigin].includes(url.origin))) return '';
       if (messageType === 'top-redirect' && !isPaymentResult) return '';
       if (messageType === 'payment-handoff') {
         if (url.origin !== paymentOrigin || !isPaymentHandoff) return '';
@@ -107,13 +109,14 @@
     var slug = index >= 0 ? parts[index + 1] || '' : params.get('room') || '';
     var pathToken = index >= 0 ? parts[index + 2] || '' : '';
     var queryToken = params.get('t') || '';
+    var authHandoff = params.get('auth_handoff') || '';
     var token = pathToken || queryToken;
     var paymentState = params.get('payment') || '';
     var paymentOrderNo = params.get('order_no') || '';
-    if (!/^[A-Za-z0-9_-]{1,64}$/.test(slug) || (token && !allowedToken.test(token))) return null;
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(slug) || (token && !allowedToken.test(token)) || (authHandoff && !authHandoffPattern.test(authHandoff))) return null;
     if (paymentState && !/^(?:success|failed)$/.test(paymentState)) return null;
     if (paymentState && !/^[A-Za-z0-9_-]{1,80}$/.test(paymentOrderNo)) return null;
-    return { slug: slug, token: token, paymentState: paymentState, paymentOrderNo: paymentOrderNo };
+    return { slug: slug, token: token, authHandoff: authHandoff, paymentState: paymentState, paymentOrderNo: paymentOrderNo };
   }
 
   var route = parseRoute();
@@ -121,10 +124,16 @@
     showError('zb地址无效或暂未配置');
     return;
   }
+  if (authHandoffPattern.test(route.authHandoff)) {
+    var cleanLocation = new URL(window.location.href);
+    cleanLocation.searchParams.delete('auth_handoff');
+    window.history.replaceState(window.history.state, '', cleanLocation.pathname + cleanLocation.search + cleanLocation.hash);
+  }
   var target = backendOrigin + '/live/' + encodeURIComponent(route.slug);
   if (/^[A-Za-z0-9_-]{12}$/.test(route.token)) target += '/' + encodeURIComponent(route.token);
   var targetParams = new URLSearchParams();
   if (/^[a-f0-9]{48}$/i.test(route.token)) targetParams.set('t', route.token);
+  if (authHandoffPattern.test(route.authHandoff)) targetParams.set('auth_handoff', route.authHandoff);
   if (visitorToken) targetParams.set('vt', visitorToken);
   if (route.paymentState) {
     targetParams.set('payment', route.paymentState);
@@ -149,4 +158,4 @@
       // Cross-origin access is intentionally limited to postMessage.
     }
   });
-})(); 
+})();
