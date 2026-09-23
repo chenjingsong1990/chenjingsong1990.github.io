@@ -11,6 +11,7 @@
   var visitorTokenPattern = /^[a-f0-9]{32}$/i;
   var visitorToken = '';
   var wechatFontMenuBound = false;
+  var frameReady = false;
 
   // GitHub Pages 是微信中的顶层 WebView。部分 Android 微信会在顶层直接
   // 放大 iframe 内的字形，因此必须在外壳层先声明页面自行管理字号。
@@ -32,9 +33,79 @@
         } catch (error) {
           // 业务直播页仍有 text-size-adjust 和固定字号变量作为兜底。
         }
+        [0, 120, 420].forEach(function (delay) {
+          window.setTimeout(publishWechatFontScale, delay);
+        });
       });
     }
     return true;
+  }
+
+  function detectWechatFontScale() {
+    var userAgent = String(window.navigator && window.navigator.userAgent || '');
+    if (!/MicroMessenger/i.test(userAgent) || !document.createElement || !window.getComputedStyle) return 1;
+    var sampleText = '直播间字体检测Aa中文';
+    var probe = document.createElement('span');
+    probe.textContent = sampleText;
+    probe.style.cssText = 'position:fixed;left:-10000px;top:0;display:inline-block;visibility:hidden;pointer-events:none;white-space:nowrap;font-family:Arial,sans-serif;font-size:16px;font-weight:400;letter-spacing:0;line-height:normal;padding:0;margin:0;border:0';
+    document.body.appendChild(probe);
+    var computed = window.getComputedStyle(probe);
+    var domWidth = probe.getBoundingClientRect().width;
+    var rangeWidth = domWidth;
+    if (document.createRange) {
+      try {
+        var range = document.createRange();
+        range.selectNodeContents(probe);
+        rangeWidth = range.getBoundingClientRect().width || domWidth;
+        if (range.detach) range.detach();
+      } catch (error) {
+        rangeWidth = domWidth;
+      }
+    }
+    var canvas = document.createElement('canvas');
+    var context = canvas.getContext && canvas.getContext('2d');
+    var canvasWidth = 0;
+    if (context) {
+      context.font = [computed.fontStyle, computed.fontVariant, computed.fontWeight, computed.fontSize, computed.fontFamily].join(' ');
+      canvasWidth = context.measureText(sampleText).width;
+    }
+    var svgWidth = 0;
+    if (document.createElementNS) {
+      try {
+        var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        var svgText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        svg.setAttribute('width', '1000');
+        svg.setAttribute('height', '40');
+        svg.style.cssText = 'position:fixed;left:-10000px;top:0;visibility:hidden;pointer-events:none';
+        svgText.setAttribute('x', '0');
+        svgText.setAttribute('y', '24');
+        svgText.setAttribute('font-family', computed.fontFamily);
+        svgText.setAttribute('font-size', '16');
+        svgText.setAttribute('font-weight', '400');
+        svgText.textContent = sampleText;
+        svg.appendChild(svgText);
+        document.body.appendChild(svg);
+        svgWidth = Number((svgText.getComputedTextLength && svgText.getComputedTextLength()) || (svgText.getBBox && svgText.getBBox().width) || 0);
+        svg.remove();
+      } catch (error) {
+        svgWidth = 0;
+      }
+    }
+    probe.remove();
+    var computedFontSize = parseFloat(computed.fontSize) || 16;
+    var scale = Math.max(
+      computedFontSize / 16,
+      canvasWidth > 0 ? domWidth / canvasWidth : 1,
+      canvasWidth > 0 ? rangeWidth / canvasWidth : 1,
+      svgWidth > 0 ? domWidth / svgWidth : 1,
+      svgWidth > 0 ? rangeWidth / svgWidth : 1
+    );
+    return Number.isFinite(scale) && scale >= 1 && scale <= 3 ? scale : 1;
+  }
+
+  function publishWechatFontScale() {
+    if (!frameReady || !frame || !frame.contentWindow) return;
+    frame.contentWindow.postMessage({ type: 'wechat-font-scale', scale: detectWechatFontScale() }, backendOrigin);
   }
 
   function installWechatFontSizeLock() {
@@ -192,9 +263,14 @@
     }
   });
   frame.addEventListener('load', function () {
+    frameReady = true;
     try {
       frame.contentWindow.postMessage({ type: 'shell-init', return_url: window.location.href }, backendOrigin);
       frame.contentWindow.postMessage({ type: 'request-live-share-info' }, backendOrigin);
+      publishWechatFontScale();
+      [120, 500, 1200, 2200, 4000, 8000].forEach(function (delay) {
+        window.setTimeout(publishWechatFontScale, delay);
+      });
     } catch (error) {
       // Cross-origin access is intentionally limited to postMessage.
     }
