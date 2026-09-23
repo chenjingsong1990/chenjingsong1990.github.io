@@ -10,6 +10,47 @@
   var authHandoffPattern = /^[a-f0-9]{64}$/i;
   var visitorTokenPattern = /^[a-f0-9]{32}$/i;
   var visitorToken = '';
+  var wechatFontMenuBound = false;
+
+  // GitHub Pages 是微信中的顶层 WebView。部分 Android 微信会在顶层直接
+  // 放大 iframe 内的字形，因此必须在外壳层先声明页面自行管理字号。
+  function resetWechatWebViewFontSize() {
+    var userAgent = String(window.navigator && window.navigator.userAgent || '');
+    if (!/MicroMessenger/i.test(userAgent)) return false;
+    var bridge = window.WeixinJSBridge;
+    if (!bridge || typeof bridge.invoke !== 'function') return false;
+    try {
+      bridge.invoke('setFontSizeCallback', { fontSize: 0 }, function () {});
+    } catch (error) {
+      return false;
+    }
+    if (!wechatFontMenuBound && typeof bridge.on === 'function') {
+      wechatFontMenuBound = true;
+      bridge.on('menu:setfont', function () {
+        try {
+          bridge.invoke('setFontSizeCallback', { fontSize: 0 }, function () {});
+        } catch (error) {
+          // 业务直播页仍有 text-size-adjust 和固定字号变量作为兜底。
+        }
+      });
+    }
+    return true;
+  }
+
+  function installWechatFontSizeLock() {
+    var userAgent = String(window.navigator && window.navigator.userAgent || '');
+    if (!/MicroMessenger/i.test(userAgent)) return;
+    if (document.addEventListener) {
+      document.addEventListener('WeixinJSBridgeReady', resetWechatWebViewFontSize, false);
+    }
+    if (typeof window.setTimeout === 'function') {
+      [0, 120, 500, 1200, 2200].forEach(function (delay) {
+        window.setTimeout(resetWechatWebViewFontSize, delay);
+      });
+    }
+  }
+
+  installWechatFontSizeLock();
   try {
     visitorToken = String(localStorage.getItem('private_live_visitor_token') || '').toLowerCase();
     if (!visitorTokenPattern.test(visitorToken)) {
