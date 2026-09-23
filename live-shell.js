@@ -12,6 +12,10 @@
   var visitorToken = '';
   var wechatFontMenuBound = false;
   var frameReady = false;
+  var businessFrameReady = false;
+  var frameRetryCount = 0;
+  var frameReadyTimer = null;
+  var baseFrameTarget = '';
 
   // GitHub Pages 是微信中的顶层 WebView。部分 Android 微信会在顶层直接
   // 放大 iframe 内的字形，因此必须在外壳层先声明页面自行管理字号。
@@ -139,6 +143,88 @@
     document.getElementById('errorMessage').textContent = message;
   }
 
+  function clearFrameReadyTimer() {
+    if (frameReadyTimer !== null && typeof window.clearTimeout === 'function') {
+      window.clearTimeout(frameReadyTimer);
+    }
+    frameReadyTimer = null;
+  }
+
+  function setFrameRecoveryState(message, canRetry) {
+    var layer = document.getElementById('frameRecovery');
+    if (!layer) {
+      layer = document.createElement('div');
+      layer.id = 'frameRecovery';
+      layer.style.cssText = 'position:fixed;inset:0;z-index:20;display:none;place-items:center;padding:28px;box-sizing:border-box;background:#0b0f17;color:#fff;text-align:center;font-family:system-ui,sans-serif';
+      var card = document.createElement('div');
+      card.style.cssText = 'width:min(100%,300px);display:grid;justify-items:center;gap:14px';
+      var textNode = document.createElement('div');
+      textNode.id = 'frameRecoveryText';
+      textNode.style.cssText = 'font-size:15px;line-height:1.6;color:rgba(255,255,255,.82)';
+      var button = document.createElement('button');
+      button.id = 'frameRecoveryButton';
+      button.type = 'button';
+      button.textContent = '重新进入';
+      button.style.cssText = 'min-width:156px;min-height:44px;padding:9px 18px;border:0;border-radius:999px;background:#ff315f;color:#fff;font:700 15px/1.3 system-ui,sans-serif';
+      button.addEventListener('click', function () {
+        frameRetryCount = 0;
+        layer.style.display = 'none';
+        reloadBusinessFrame();
+      });
+      card.appendChild(textNode);
+      card.appendChild(button);
+      layer.appendChild(card);
+      document.body.appendChild(layer);
+    }
+    var recoveryText = document.getElementById('frameRecoveryText');
+    var recoveryButton = document.getElementById('frameRecoveryButton');
+    if (recoveryText) recoveryText.textContent = message;
+    if (recoveryButton) recoveryButton.style.display = canRetry ? 'inline-flex' : 'none';
+    layer.style.display = 'grid';
+  }
+
+  function hideFrameRecovery() {
+    var layer = document.getElementById('frameRecovery');
+    if (layer) layer.style.display = 'none';
+  }
+
+  function targetWithRetryMarker() {
+    try {
+      var retryUrl = new URL(baseFrameTarget);
+      retryUrl.searchParams.set('_shell_retry', String(Date.now()) + '-' + String(frameRetryCount));
+      return retryUrl.href;
+    } catch (error) {
+      return baseFrameTarget;
+    }
+  }
+
+  function armFrameReadyWatchdog() {
+    clearFrameReadyTimer();
+    if (businessFrameReady || typeof window.setTimeout !== 'function') return;
+    frameReadyTimer = window.setTimeout(function () {
+      frameReadyTimer = null;
+      if (businessFrameReady) return;
+      if (document.hidden) {
+        armFrameReadyWatchdog();
+        return;
+      }
+      if (frameRetryCount < 2) {
+        frameRetryCount += 1;
+        setFrameRecoveryState('正在重新连接直播间…', false);
+        reloadBusinessFrame();
+        return;
+      }
+      setFrameRecoveryState('直播间暂时没有加载成功', true);
+    }, 8000);
+  }
+
+  function reloadBusinessFrame() {
+    businessFrameReady = false;
+    frameReady = false;
+    frame.src = targetWithRetryMarker();
+    armFrameReadyWatchdog();
+  }
+
   function updateMeta(data) {
     var title = String(data && data.title || 'zb').trim() || 'zb';
     var description = String(data && data.description || '点击进入zb').trim() || '点击进入zb';
@@ -252,10 +338,18 @@
     targetParams.set('order_no', route.paymentOrderNo);
   }
   if (targetParams.toString()) target += '?' + targetParams.toString();
-  frame.src = target;
+  baseFrameTarget = target;
+  frame.src = baseFrameTarget;
+  armFrameReadyWatchdog();
 
   window.addEventListener('message', function (event) {
     if (event.origin !== backendOrigin || !event.data || typeof event.data !== 'object') return;
+    if (event.data.type === 'live-shell-ready' && event.source === frame.contentWindow) {
+      businessFrameReady = true;
+      clearFrameReadyTimer();
+      hideFrameRecovery();
+      return;
+    }
     if (event.data.type === 'live-share-info') updateMeta(event.data);
     if ((event.data.type === 'wechat-login' || event.data.type === 'top-redirect' || event.data.type === 'business-action' || event.data.type === 'payment-handoff') && event.source === frame.contentWindow) {
       var target = allowedTopRedirect(event.data.url, event.data.type);
@@ -271,6 +365,7 @@
       [120, 500, 1200, 2200, 4000, 8000].forEach(function (delay) {
         window.setTimeout(publishWechatFontScale, delay);
       });
+      armFrameReadyWatchdog();
     } catch (error) {
       // Cross-origin access is intentionally limited to postMessage.
     }
