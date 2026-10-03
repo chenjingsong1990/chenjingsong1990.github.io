@@ -250,15 +250,44 @@
     try {
       var url = new URL(String(value || ''), window.location.href);
       if (url.origin !== window.location.origin || url.username || url.password || url.hash) return false;
-      if (!/^\/(?:[^/?#]+\/)?$/.test(url.pathname)) return false;
       var room = url.searchParams.get('room') || '';
       var token = url.searchParams.get('t') || '';
       var authHandoff = url.searchParams.get('auth_handoff') || '';
-      if (!/^[A-Za-z0-9_-]{1,64}$/.test(room) || (token && !allowedToken.test(token)) || (authHandoff && !authHandoffPattern.test(authHandoff))) return false;
+      var pathMatch = url.pathname.match(/^\/(?:[^/?#]+\/)*live\/([A-Za-z0-9_-]{1,64})(?:\/([A-Za-z0-9_-]{12}))?\/?$/);
+      var pathRoute = Boolean(pathMatch)
+        && (!route || pathMatch[1] === route.slug)
+        && (!pathMatch[2] || allowedToken.test(pathMatch[2]))
+        && (!room || !route || room === route.slug)
+        && (!token || allowedToken.test(token));
+      var queryRoute = /^\/(?:[^/?#]+\/)?$/.test(url.pathname)
+        && /^[A-Za-z0-9_-]{1,64}$/.test(room)
+        && (!route || room === route.slug)
+        && (!token || allowedToken.test(token));
+      if ((!pathRoute && !queryRoute) || (authHandoff && !authHandoffPattern.test(authHandoff))) return false;
       return Array.from(url.searchParams.keys()).every(function (key) { return key === 'room' || key === 't' || key === 'auth_handoff'; });
     } catch (error) {
       return false;
     }
+  }
+
+  function shellContextReturnUrl() {
+    var url = new URL(window.location.href);
+    url.searchParams.delete('auth_handoff');
+    url.searchParams.delete('payment');
+    url.searchParams.delete('order_no');
+    return validShellReturnUrl(url.href) ? url.href : '';
+  }
+
+  function publishShellContext() {
+    if (!frame || !frame.contentWindow) return;
+    var returnUrl = shellContextReturnUrl();
+    if (!returnUrl) return;
+    frame.contentWindow.postMessage({
+      type: 'shell-context',
+      mode: 'github',
+      room: route.slug,
+      return_url: returnUrl
+    }, backendOrigin);
   }
 
   function allowedTopRedirect(value, messageType) {
@@ -330,6 +359,7 @@
   var target = backendOrigin + '/live/' + encodeURIComponent(route.slug);
   if (/^[A-Za-z0-9_-]{12}$/.test(route.token)) target += '/' + encodeURIComponent(route.token);
   var targetParams = new URLSearchParams();
+  targetParams.set('_github_embed', '1');
   if (/^[a-f0-9]{48}$/i.test(route.token)) targetParams.set('t', route.token);
   if (authHandoffPattern.test(route.authHandoff)) targetParams.set('auth_handoff', route.authHandoff);
   if (visitorToken) targetParams.set('vt', visitorToken);
@@ -350,6 +380,12 @@
       hideFrameRecovery();
       return;
     }
+    if (event.source !== frame.contentWindow) return;
+    if (event.data.type === 'request-shell-context') {
+      if (String(event.data.room || '') !== route.slug) return;
+      publishShellContext();
+      return;
+    }
     if (event.data.type === 'live-share-info') updateMeta(event.data);
     if ((event.data.type === 'wechat-login' || event.data.type === 'top-redirect' || event.data.type === 'business-action' || event.data.type === 'payment-handoff') && event.source === frame.contentWindow) {
       var target = allowedTopRedirect(event.data.url, event.data.type);
@@ -359,7 +395,8 @@
   frame.addEventListener('load', function () {
     frameReady = true;
     try {
-      frame.contentWindow.postMessage({ type: 'shell-init', return_url: window.location.href }, backendOrigin);
+      publishShellContext();
+      frame.contentWindow.postMessage({ type: 'shell-init', mode: 'github', room: route.slug, return_url: shellContextReturnUrl() }, backendOrigin);
       frame.contentWindow.postMessage({ type: 'request-live-share-info' }, backendOrigin);
       publishWechatFontScale();
       [120, 500, 1200, 2200, 4000, 8000].forEach(function (delay) {
