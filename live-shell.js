@@ -271,10 +271,15 @@
   }
 
   function shellContextReturnUrl() {
-    var url = new URL(window.location.href);
-    url.searchParams.delete('auth_handoff');
-    url.searchParams.delete('payment');
-    url.searchParams.delete('order_no');
+    var url = new URL(window.location.pathname, window.location.origin);
+    var pathParts = window.location.pathname.split('/').filter(Boolean);
+    var liveIndex = pathParts.indexOf('live');
+    if (liveIndex < 0) {
+      url.searchParams.set('room', route.slug);
+      if (route.token) url.searchParams.set('t', route.token);
+    } else if (/^[a-f0-9]{48}$/i.test(route.token)) {
+      url.searchParams.set('t', route.token);
+    }
     return validShellReturnUrl(url.href) ? url.href : '';
   }
 
