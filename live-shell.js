@@ -4,7 +4,6 @@
   var page = document.body;
   var frame = document.getElementById('liveFrame');
   var backendOrigin = String(page.dataset.backendOrigin || '').replace(/\/$/, '');
-  var paymentOrigin = String(page.dataset.paymentOrigin || backendOrigin).replace(/\/$/, '');
   var shareImage = String(page.dataset.shareImage || '').trim();
   var allowedToken = /^(?:[A-Za-z0-9_-]{12}|[a-f0-9]{48})$/i;
   var authHandoffPattern = /^[a-f0-9]{64}$/i;
@@ -291,6 +290,7 @@
       type: 'shell-context',
       mode: 'github',
       room: route.slug,
+      payment_relay: true,
       return_url: returnUrl
     }, backendOrigin);
   }
@@ -301,12 +301,19 @@
       if (url.username || url.password || url.hash) return '';
       var isWechatAuth = url.pathname === '/auth/wechat';
       var isPaymentResult = /^\/live\/[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]{12})?\/payment-result$/.test(url.pathname);
-      var isPaymentHandoff = /^\/live\/[A-Za-z0-9_-]+\/payment-handoff$/.test(url.pathname);
+      var paymentHandoffRelayMatch = url.pathname.match(/^\/live\/([A-Za-z0-9_-]+)\/payment-handoff\/relay$/);
+      var paymentHandoffDirectMatch = url.pathname.match(/^\/live\/([A-Za-z0-9_-]+)\/payment-handoff$/);
       var isBusinessLive = /^\/live\/[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]{12})?$/.test(url.pathname);
-      if (messageType === 'wechat-login' && (!isWechatAuth || ![backendOrigin, paymentOrigin].includes(url.origin))) return '';
+      if (messageType === 'wechat-login' && (!isWechatAuth || url.origin !== backendOrigin)) return '';
       if (messageType === 'top-redirect' && !isPaymentResult) return '';
       if (messageType === 'payment-handoff') {
-        if (url.origin !== paymentOrigin || !isPaymentHandoff) return '';
+        var validRelay = url.origin === backendOrigin
+          && paymentHandoffRelayMatch
+          && paymentHandoffRelayMatch[1] === route.slug;
+        var validLegacyDirect = url.protocol === 'https:'
+          && paymentHandoffDirectMatch
+          && paymentHandoffDirectMatch[1] === route.slug;
+        if (!validRelay && !validLegacyDirect) return '';
         if (!/^[a-f0-9]{64}$/i.test(url.searchParams.get('token') || '')) return '';
         if (Array.from(url.searchParams.keys()).some(key => key !== 'token')) return '';
         return url.href;
@@ -401,7 +408,7 @@
     frameReady = true;
     try {
       publishShellContext();
-      frame.contentWindow.postMessage({ type: 'shell-init', mode: 'github', room: route.slug, return_url: shellContextReturnUrl() }, backendOrigin);
+      frame.contentWindow.postMessage({ type: 'shell-init', mode: 'github', room: route.slug, payment_relay: true, return_url: shellContextReturnUrl() }, backendOrigin);
       frame.contentWindow.postMessage({ type: 'request-live-share-info' }, backendOrigin);
       publishWechatFontScale();
       [120, 500, 1200, 2200, 4000, 8000].forEach(function (delay) {
