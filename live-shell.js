@@ -6,6 +6,7 @@
   var backendOrigin = String(page.dataset.backendOrigin || '').replace(/\/$/, '');
   var shareImage = String(page.dataset.shareImage || '').trim();
   var allowedToken = /^(?:[A-Za-z0-9_-]{12}|[a-f0-9]{48})$/i;
+  var shareSourcePattern = /^(?:[A-Za-z0-9_-]{12}|[a-f0-9]{48})$/;
   var authHandoffPattern = /^[a-f0-9]{64}$/i;
   var visitorTokenPattern = /^[a-f0-9]{32}$/i;
   var visitorToken = '';
@@ -251,6 +252,7 @@
       if (url.origin !== window.location.origin || url.username || url.password || url.hash) return false;
       var room = url.searchParams.get('room') || '';
       var token = url.searchParams.get('t') || '';
+      var shareSource = url.searchParams.get('s') || '';
       var authHandoff = url.searchParams.get('auth_handoff') || '';
       var pathMatch = url.pathname.match(/^\/(?:[^/?#]+\/)*live\/([A-Za-z0-9_-]{1,64})(?:\/([A-Za-z0-9_-]{12}))?\/?$/);
       var pathRoute = Boolean(pathMatch)
@@ -262,8 +264,10 @@
         && /^[A-Za-z0-9_-]{1,64}$/.test(room)
         && (!route || room === route.slug)
         && (!token || allowedToken.test(token));
-      if ((!pathRoute && !queryRoute) || (authHandoff && !authHandoffPattern.test(authHandoff))) return false;
-      return Array.from(url.searchParams.keys()).every(function (key) { return key === 'room' || key === 't' || key === 'auth_handoff'; });
+      if ((!pathRoute && !queryRoute)
+        || (shareSource && !shareSourcePattern.test(shareSource))
+        || (authHandoff && !authHandoffPattern.test(authHandoff))) return false;
+      return Array.from(url.searchParams.keys()).every(function (key) { return key === 'room' || key === 't' || key === 's' || key === 'auth_handoff'; });
     } catch (error) {
       return false;
     }
@@ -279,7 +283,28 @@
     } else if (/^[a-f0-9]{48}$/i.test(route.token)) {
       url.searchParams.set('t', route.token);
     }
+    if (route.source) url.searchParams.set('s', route.source);
     return validShellReturnUrl(url.href) ? url.href : '';
+  }
+
+  function applyViewerShareSource(value) {
+    var source = String(value || '');
+    if (!/^[A-Za-z0-9_-]{12}$/.test(source)) return false;
+    route.source = source;
+    try {
+      var current = new URL(window.location.href);
+      current.searchParams.set('s', source);
+      var nextFrameTarget = new URL(baseFrameTarget);
+      nextFrameTarget.searchParams.set('s', source);
+      baseFrameTarget = nextFrameTarget.href;
+      if (window.history && typeof window.history.replaceState === 'function') {
+        window.history.replaceState(window.history.state, '', current.pathname + current.search + current.hash);
+      }
+    } catch (error) {
+      return false;
+    }
+    publishShellContext();
+    return true;
   }
 
   function publishShellContext() {
@@ -348,14 +373,18 @@
     var slug = index >= 0 ? parts[index + 1] || '' : params.get('room') || '';
     var pathToken = index >= 0 ? parts[index + 2] || '' : '';
     var queryToken = params.get('t') || '';
+    var shareSource = params.get('s') || '';
     var authHandoff = params.get('auth_handoff') || '';
     var token = pathToken || queryToken;
     var paymentState = params.get('payment') || '';
     var paymentOrderNo = params.get('order_no') || '';
-    if (!/^[A-Za-z0-9_-]{1,64}$/.test(slug) || (token && !allowedToken.test(token)) || (authHandoff && !authHandoffPattern.test(authHandoff))) return null;
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(slug)
+      || (token && !allowedToken.test(token))
+      || (shareSource && !shareSourcePattern.test(shareSource))
+      || (authHandoff && !authHandoffPattern.test(authHandoff))) return null;
     if (paymentState && !/^(?:success|failed)$/.test(paymentState)) return null;
     if (paymentState && !/^[A-Za-z0-9_-]{1,80}$/.test(paymentOrderNo)) return null;
-    return { slug: slug, token: token, authHandoff: authHandoff, paymentState: paymentState, paymentOrderNo: paymentOrderNo };
+    return { slug: slug, token: token, source: shareSource, authHandoff: authHandoff, paymentState: paymentState, paymentOrderNo: paymentOrderNo };
   }
 
   var route = parseRoute();
@@ -373,6 +402,7 @@
   var targetParams = new URLSearchParams();
   targetParams.set('_github_embed', '1');
   if (/^[a-f0-9]{48}$/i.test(route.token)) targetParams.set('t', route.token);
+  if (route.source) targetParams.set('s', route.source);
   if (authHandoffPattern.test(route.authHandoff)) targetParams.set('auth_handoff', route.authHandoff);
   if (visitorToken) targetParams.set('vt', visitorToken);
   if (route.paymentState) {
@@ -396,6 +426,11 @@
     if (event.data.type === 'request-shell-context') {
       if (String(event.data.room || '') !== route.slug) return;
       publishShellContext();
+      return;
+    }
+    if (event.data.type === 'live-share-source') {
+      if (String(event.data.room || '') !== route.slug) return;
+      applyViewerShareSource(event.data.source);
       return;
     }
     if (event.data.type === 'live-share-info') updateMeta(event.data);
