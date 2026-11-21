@@ -16,6 +16,7 @@
   var frameRetryCount = 0;
   var frameReadyTimer = null;
   var baseFrameTarget = '';
+  var terminalFrameState = false;
 
   // GitHub Pages 是微信中的顶层 WebView。部分 Android 微信会在顶层直接
   // 放大 iframe 内的字形，因此必须在外壳层先声明页面自行管理字号。
@@ -200,7 +201,7 @@
 
   function armFrameReadyWatchdog() {
     clearFrameReadyTimer();
-    if (businessFrameReady || typeof window.setTimeout !== 'function') return;
+    if (businessFrameReady || terminalFrameState || typeof window.setTimeout !== 'function') return;
     frameReadyTimer = window.setTimeout(function () {
       frameReadyTimer = null;
       if (businessFrameReady) return;
@@ -219,6 +220,7 @@
   }
 
   function reloadBusinessFrame() {
+    terminalFrameState = false;
     businessFrameReady = false;
     frameReady = false;
     frame.src = targetWithRetryMarker();
@@ -416,6 +418,17 @@
 
   window.addEventListener('message', function (event) {
     if (event.origin !== backendOrigin || !event.data || typeof event.data !== 'object') return;
+    if (event.data.type === 'live-shell-terminal'
+      && event.source === frame.contentWindow
+      && event.data.reason === 'room_retired'
+      && String(event.data.room || '') === route.slug) {
+      terminalFrameState = true;
+      businessFrameReady = true;
+      frameReady = true;
+      clearFrameReadyTimer();
+      hideFrameRecovery();
+      return;
+    }
     if (event.data.type === 'live-shell-ready' && event.source === frame.contentWindow) {
       businessFrameReady = true;
       clearFrameReadyTimer();
